@@ -1,0 +1,7 @@
+include:
+  - "**/*.rb"
+exclude:
+  - spec/**/*
+  - test/**/*
+require:
+  - sketchup-api-stubs

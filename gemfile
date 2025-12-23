@@ -1,0 +1,17 @@
+source 'https://rubygems.org'
+
+# The core LSP engine
+gem 'ruby-lsp'
+
+# Official SketchUp API Stubs for Autocomplete
+gem 'sketchup-api-stubs'
+
+# Linter and Formatter specifically for SketchUp
+gem 'rubocop-sketchup'
+
+# Language Server for VS Code integration
+gem 'solargraph'
+
+# TO DO
+# bundle install
+# bundle exec yard gems

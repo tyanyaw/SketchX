@@ -1,0 +1,8 @@
+{
+
+    "ruby.interpreter.commandPath": "/Users/designbahana/.rbenv/shims/ruby",
+    "solargraph.commandPath": "/Users/designbahana/.rbenv/shims/solargraph",
+    
+    "ruby.useBundler": true,
+    "solargraph.useBundler": true,
+}
