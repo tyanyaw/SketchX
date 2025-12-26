@@ -42,7 +42,8 @@ module RoundMe
     # ==========================================================================
     # INITIALIZATION & STATE MANAGEMENT
     # ==========================================================================
-
+    # :single :multi
+    #
     def initialize(mode = :single)
       @mode = mode
       @radius = Config::DEFAULT_RADIUS
