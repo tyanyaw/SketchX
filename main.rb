@@ -77,20 +77,28 @@ module SketchX
     # ==========================================================================
 
     def update_ui
-      Sketchup.vcb_label = 'Radius; Segments; RemoveLead'
-      remove_text = @remove_lead ? 'yes' : 'no'
-      Sketchup.vcb_value = "#{@radius}; #{@segments}s; #{remove_text}"
+      # 1. Keep the VCB Label simple (helps SketchUp refresh it reliably)
+      Sketchup.vcb_label = 'Radius; Segments'
 
-      status_message = case @state
-                       when :hover
-                         @mode == :multi ? "Hover Connected Edges (Default #{@radius})" : 'Hover One Corner'
-                       when :dragging
-                         'Drag to Resize. Type value to commit.'
-                       else
-                         'Ready'
-                       end
+      # 2. Show the values (Radius and Segments)
+      Sketchup.vcb_value = "#{@radius}; #{@segments}s"
 
-      Sketchup.set_status_text(status_message)
+      # 3. Use the Status Bar for the "Toggle" feedback
+      # This is where SketchUp users expect to see tool instructions
+      lead_text = @remove_lead ? '[ Corner : REMOVED ]' : '[ Corner : KEEP ]'
+
+      mode_text = case @state
+                  when :hover
+                    @mode == :multi ? 'Hover Multi Edges / Face' : 'Hover Corner'
+                  when :dragging
+                    'Drag to Resize | Type value to commit'
+                  else
+                    'Ready'
+                  end
+
+      # Combine them into one clear instruction line
+      full_status = "#{mode_text} | Option/Ctrl: Toggle Corner Removal -> #{lead_text}"
+      Sketchup.set_status_text(full_status)
     end
 
     # ==========================================================================
@@ -135,6 +143,16 @@ module SketchX
       puts "Input error: #{e.message}"
     end
 
+    def onKeyDown(key, repeat, flags, view)
+      # COPY_MODIFIER_MASK captures Cmd on Mac and Ctrl on Windows
+      return unless (flags & COPY_MODIFIER_MASK) != 0
+
+      @remove_lead = !@remove_lead
+      update_ui
+      view.invalidate
+      puts "Lead Removal: #{@remove_lead}"
+    end
+
     # ==========================================================================
     # INPUT PARSING
     # ==========================================================================
@@ -146,10 +164,7 @@ module SketchX
       when 1
         parse_single_value(parts[0])
       when 2
-        parse_radius_segments(parts[0], parts[1])
-      when 3
-        parse_radius_segments(parts[0], parts[1])
-        parse_remove_lead(parts[2])
+        parse_double_value(parts[0], parts[1])
       end
     end
 
@@ -161,14 +176,9 @@ module SketchX
       end
     end
 
-    def parse_radius_segments(r_str, s_str)
+    def parse_double_value(r_str, s_str)
       @radius = r_str.to_l unless r_str.empty?
       @segments = s_str.to_i unless s_str.empty?
-    end
-
-    def parse_remove_lead(rl_str)
-      normalized = rl_str.downcase.strip
-      @remove_lead = !%w[no n keep false].include?(normalized)
     end
 
     # ==========================================================================
