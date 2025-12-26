@@ -1,0 +1,26 @@
+module Config
+    DEFAULT_RADIUS = 50.mm unless defined?(DEFAULT_RADIUS)
+    DEFAULT_SEGMENTS = 12 unless defined?(DEFAULT_SEGMENTS)
+    MIN_RADIUS = 0.1.mm unless defined?(MIN_RADIUS)
+    MIN_ANGLE = 0.01 unless defined?(MIN_ANGLE)
+    MAX_ANGLE = Math::PI - 0.01 unless defined?(MAX_ANGLE)
+    ARC_LIFT_OFFSET = 0.2.mm unless defined?(ARC_LIFT_OFFSET)
+    HUD_PADDING_SCALE = 3 unless defined?(HUD_PADDING_SCALE)
+    HUD_FONT_SIZE = 10 unless defined?(HUD_FONT_SIZE)
+    LEAD_TOLERANCE = 0.1.mm unless defined?(LEAD_TOLERANCE)
+
+    unless defined?(COLORS)
+      COLORS = {
+        highlight: 'blue',
+        corner: 'red',
+        preview: 'orange',
+        guide: 'gray',
+        hud_bg: [255, 255, 255, 230],
+        hud_border: [180, 180, 180],
+        hud_text: 'black'
+      }.freeze
+    end
+  end
+
+
+  
