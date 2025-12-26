@@ -3,11 +3,13 @@
 require 'sketchup'
 require 'extensions'
 
-module RoundMe
+# Main module for the SketchX SketchUp plugin providing fillet/rounding functionality.
+module SketchX
   # ============================================================================
   # CONFIGURATION & CONSTANTS
   # ============================================================================
 
+  # Default Configuration
   module Config
     DEFAULT_RADIUS = 50.mm unless defined?(DEFAULT_RADIUS)
     DEFAULT_SEGMENTS = 12 unless defined?(DEFAULT_SEGMENTS)
@@ -36,6 +38,7 @@ module RoundMe
   # MAIN TOOL CLASS
   # ============================================================================
 
+  # FilletTool Class
   class FilletTool
     attr_reader :mode, :radius, :segments, :remove_lead
 
@@ -294,7 +297,6 @@ module RoundMe
           d[:pos_o], d[:xaxis], d[:normal],
           d[:radius], 0.0, d[:o_angle], @segments
         )
-
         collect_tangent_edges(d, arc)
       end
 
@@ -302,51 +304,41 @@ module RoundMe
 
       model.commit_operation
 
+      # Update Selection AFTER commit so the UI can draw it
+      # selection = model.selection
+      # selection.clear
+      # selection.add(@tangent_edges)
+      # model.active_view.invalidate
+
+      # Delay or remove reset_state to keep the selection visible
       reset_state
     end
 
     def collect_tangent_edges(data, arc)
       model = Sketchup.active_model
+      entities = model.active_entities
 
       # Find edges at tangent points
-      tangent_pt1 = data[:pos_p1]
-      tangent_pt2 = data[:pos_p2]
+      corner_point = data[:pos_b]
 
-      edges_at_p1 = find_edges_at_point(tangent_pt1)
-      edges_at_p2 = find_edges_at_point(tangent_pt2)
-
-      @tangent_edges.concat(edges_at_p1)
-      @tangent_edges.concat(edges_at_p2)
-    end
-
-    def find_edges_at_point(point, tolerance = 0.01.mm)
-      model = Sketchup.active_model
-      model.active_entities.grep(Sketchup::Edge).select do |e|
-        e.start.position.distance(point) < tolerance ||
-          e.end.position.distance(point) < tolerance
+      entities.grep(Sketchup::Edge).each do |edge|
+        # If any end is same between two edge, its tangen edge
+        @tangent_edges << edge if edge.start.position == corner_point || edge.end.position == corner_point
       end
+
+      @tangent_edges
     end
 
     def remove_leads(edges)
       return if edges.empty?
 
+      entities = Sketchup.active_model.active_entities
+
       # Filter out arc edges and duplicates
       edges_to_remove = edges.uniq.reject { |e| e.deleted? || e.curve }
 
-      edges_to_remove.each do |edge|
-        # Only remove if it's a "lead" segment (short segment to tangent point)
-        edge.erase! if edge.valid? && is_lead_edge?(edge)
-      end
-    end
-
-    def is_lead_edge?(edge)
-      # A lead edge is typically short and connects to an arc
-      return false if edge.length > @radius
-
-      # Check if one vertex connects to an arc
-      edge.vertices.any? do |v|
-        v.edges.any? { |e| e.curve && e != edge }
-      end
+      # Remove all lead edge connected to vertex corner
+      entities.erase_entities(edges_to_remove)
     end
 
     def reset_state
@@ -680,21 +672,22 @@ module RoundMe
 
     def self.create_commands
       @cmd_single = UI::Command.new('Single Round') do
-        Sketchup.active_model.select_tool(RoundMe::FilletTool.new(:single))
+        Sketchup.active_model.select_tool(SketchX::FilletTool.new(:single))
       end
       @cmd_single.small_icon = 'x_single_round.pdf'
       @cmd_single.large_icon = 'x_single_round.pdf'
-      @cmd_single.tooltip = 'Interactive Round Tool'
+      @cmd_single.tooltip = 'Round 2 Edges'
 
       @cmd_multi = UI::Command.new('Multi Round') do
-        Sketchup.active_model.select_tool(RoundMe::FilletTool.new(:multi))
+        Sketchup.active_model.select_tool(SketchX::FilletTool.new(:multi))
       end
       @cmd_multi.small_icon = 'x_multi_round.pdf'
       @cmd_multi.large_icon = 'x_multi_round.pdf'
-      @cmd_multi.tooltip = 'Round Connected Edges'
+      @cmd_multi.tooltip = 'Round Multiple Edges'
 
       @cmd_reload = UI::Command.new('Reload') do
         load __FILE__
+        SKETCHUP_CONSOLE.clear
         puts 'RoundMe Reloaded'
       end
       @cmd_reload.small_icon = 'x_reload.pdf'
