@@ -35,7 +35,7 @@ module SketchX
       HUD_PADDING_SCALE = 3 unless defined?(HUD_PADDING_SCALE)
       HUD_FONT_SIZE = 10 unless defined?(HUD_FONT_SIZE)
       LEAD_TOLERANCE = 0.1.mm unless defined?(LEAD_TOLERANCE)
-      DEBUG_MODE = false unless defined?(DEBUG_MODE)
+      DEBUG_MODE = true unless defined?(DEBUG_MODE)
 
       unless defined?(COLORS)
         COLORS = {
@@ -276,15 +276,17 @@ module SketchX
       end
 
       # Handles keyboard input for toggling lead removal.
-      # Activates when Cmd (Mac) or Ctrl (Windows) key is pressed.
+      # Activates when Option (Mac) or Ctrl (Windows) key is pressed.
       #
       # @param key [Integer] Key code
+      # 17 is the keycode for Ctrl (Windows)
+      # 524288 is the flag for Alt/Option (Mac)
       # @param repeat [Integer] Repeat count
       # @param flags [Integer] Modifier key flags
       # @param view [Sketchup::View] The active SketchUp view
       # @return [void]
-      def onKeyDown(key, repeat, flags, view)
-        return unless (flags & COPY_MODIFIER_MASK) != 0
+      def onKeyUp(key, repeat, flags, view)
+        return unless [17, 524_288].include?(key)
 
         @remove_lead = !@remove_lead
         update_ui
@@ -1095,16 +1097,16 @@ module SketchX
           Sketchup.active_model.select_tool(SketchX::RoundTool::FilletTool.new(:single))
         end
         @cmd_single.set_validation_proc { validate_tool_state(:single) }
-        @cmd_single.small_icon = 'x_single_round.pdf'
-        @cmd_single.large_icon = 'x_single_round.pdf'
+        @cmd_single.small_icon = 'x_single_round.pdf' || 'x_single_round.svg'
+        @cmd_single.large_icon = 'x_single_round.pdf' || 'x_single_round.svg'
         @cmd_single.tooltip = 'Round 2 Edges'
 
         @cmd_multi = UI::Command.new('Multi Round') do
           Sketchup.active_model.select_tool(SketchX::RoundTool::FilletTool.new(:multi))
         end
         @cmd_multi.set_validation_proc { validate_tool_state(:multi) }
-        @cmd_multi.small_icon = 'x_multi_round.pdf'
-        @cmd_multi.large_icon = 'x_multi_round.pdf'
+        @cmd_multi.small_icon = 'x_multi_round.pdf' || 'x_multi_round.svg'
+        @cmd_multi.large_icon = 'x_multi_round.pdf' || 'x_multi_round.svg'
         @cmd_multi.tooltip = 'Round Multiple Edges'
 
         @cmd_reload = UI::Command.new('Reload') do
@@ -1112,8 +1114,8 @@ module SketchX
           SKETCHUP_CONSOLE.clear
           puts 'RoundMe Reloaded'
         end
-        @cmd_reload.small_icon = 'x_reload.pdf'
-        @cmd_reload.large_icon = 'x_reload.pdf'
+        @cmd_reload.small_icon = 'x_reload.pdf' || 'x_reload.svg'
+        @cmd_reload.large_icon = 'x_reload.pdf' || 'x_reload.svg'
         @cmd_reload.tooltip = 'Reload Plugin'
       end
 
