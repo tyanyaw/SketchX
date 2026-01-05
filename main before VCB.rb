@@ -96,15 +96,13 @@ module SketchX
                   when :hover
                     @mode == :multi ? 'Hover Multi Edges / Face' : 'Hover Corner'
                   when :dragging
-                    'Drag to Resize | Type value to commit | Click to Finish'
-                  when :committed
-                    'Type new value to modify | Click to Finish'
+                    'Drag to Resize | Type value to commit'
                   else
                     'Ready'
                   end
 
       # Combine them into one clear instruction line
-      full_status = "#{mode_text} | Option/Ctrl: Toggle -> #{lead_text}"
+      full_status = "#{mode_text} | Option/Ctrl: Toggle Corner Removal -> #{lead_text}"
       Sketchup.set_status_text(full_status)
     end
 
@@ -127,17 +125,6 @@ module SketchX
     end
 
     def onLButtonDown(flags, x, y, view)
-      # NEW: If we are in 'committed' mode, a click means "I'm done editing, start new".
-      if @state == :committed
-        reset_state
-        # After reset, @state is now :hover.
-        # We immediately run the hover logic for the current click position
-        # so the user doesn't have to click twice.
-        @ip.pick(view, x, y)
-        @mode == :multi ? handle_hover_multi_round(view) : handle_hover_single_round(view)
-      end
-
-      # Existing logic handles the transition from Hover -> Drag -> Commit
       case @state
       when :hover
         @state = :dragging unless @preview_data.empty?
@@ -148,30 +135,10 @@ module SketchX
     end
 
     def onUserText(text, view)
-      # 1. Parse user input single or double value
       parse_user_input(text)
 
-      # 2. Handle based on State
-      if @state == :committed
-        # --- NATIVE BEHAVIOR LOGIC ---
-        # The user typed a value AFTER the geometry was created.
-        # We must UNDO the last operation to restore the original edges,
-        # then re-apply the operation with the new radius.
-        # But only if we have the data to do so
-        if @face_corners_raw.any?
-          Sketchup.undo # Revert to before commit_geometry
-
-          # Since we just Undid, so theoriginal edges (@edge_a, @edge_b, etc.) are valid again.
-          # We just need to update the preview math with the new @radius.
-          recalc_previews
-
-          # And re-commit immediately
-          commit_geometry
-        end
-
-      elsif @state == :dragging
-        # Just update the ghost preview
-        recalc_previews unless @face_corners_raw.empty?
+      if @state == :dragging
+        recalc_previews
         commit_geometry
       end
 
@@ -196,7 +163,6 @@ module SketchX
       case reason
       when 0 # Escape
         reset_state
-        view.invalidate
       when 1 # Changed tool
         reset_selection_data
       when 2 # Undo/Redo
@@ -350,12 +316,10 @@ module SketchX
       return if @preview_data.empty?
 
       model = Sketchup.active_model
-      # 1. Start Operation (Undo from here)
       model.start_operation('Round Selection', true)
 
       @tangent_edges = []
 
-      # 2. Create arcs and collect tangent edges or leads
       @preview_data.each do |d|
         arc = model.active_entities.add_arc(
           d[:pos_o], d[:xaxis], d[:normal],
@@ -364,20 +328,9 @@ module SketchX
         collect_tangent_edges(d, arc)
       end
 
-      # 3. Remove leads or tangent edges if enabled
       remove_leads(@tangent_edges) if @remove_lead
 
-      # 4. Commit Operation
       model.commit_operation
-
-      # 5. CRITICAL CHANGE: Do NOT reset_state yet.
-      # Switch to :committed so onUserText knows we just finished an action.
-      @state = :committed
-
-      # Update status to let user know they can still type
-      Sketchup.set_status_text('Type new radius to modify | Move mouse or press Space to finish.')
-      # Update the UI to show the new status
-      update_ui
 
       # Update Selection AFTER commit so the UI can draw it
       # selection = model.selection
@@ -386,7 +339,7 @@ module SketchX
       # model.active_view.invalidate
 
       # Delay or remove reset_state to keep the selection visible
-      # reset_state
+      reset_state
     end
 
     def collect_tangent_edges(data, arc)
@@ -448,32 +401,23 @@ module SketchX
       draw_previews(view) if @state == :dragging
     end
 
-    # Draws highlighted edges for single and multi round modes
     def draw_highlights(view)
-      # Draw highlighted edges for multi round mode
       if @mode == :multi && !@highlight_edges.empty?
         view.line_width = 4
         view.drawing_color = Config::COLORS[:highlight]
         @highlight_edges.each do |e|
-          # FIX: Skip if the edge was deleted by the previous commit
-          next if e.deleted?
-
           view.draw(GL_LINES, e.start.position, e.end.position)
         end
       end
 
       return unless @mode == :single && @edge_a
-      # FIX: Skip if single mode edges are deleted
-      return if @edge_a.deleted? || @edge_b.deleted?
 
-      # Draw highlighted edges for single round mode
       view.line_width = 3
       view.drawing_color = Config::COLORS[:highlight]
       view.draw(GL_LINES, @edge_a.start.position, @edge_a.end.position)
       view.draw(GL_LINES, @edge_b.start.position, @edge_b.end.position)
     end
 
-    # Draw indicator red dots at corners
     def draw_corner_indicators(view)
       return if @face_corners_raw.empty?
 
@@ -482,7 +426,6 @@ module SketchX
       view.draw_points(pts, 10, 2, Config::COLORS[:corner])
     end
 
-    # Draws the preview arcs for the current radius and segments
     def draw_previews(view)
       return if @preview_data.empty?
 

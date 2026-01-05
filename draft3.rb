@@ -45,8 +45,11 @@ module SketchX
     # ==========================================================================
     # INITIALIZATION & STATE MANAGEMENT
     # ==========================================================================
-    # :single :multi
+
+    # Initializes a new FilletTool instance with specified mode.
     #
+    # @param mode [Symbol] Tool operation mode - :single for single corner or :multi for multiple edges
+    # @return [FilletTool] A new instance of FilletTool
     def initialize(mode = :single)
       @mode = mode
       @radius = Config::DEFAULT_RADIUS
@@ -58,22 +61,38 @@ module SketchX
       reset_selection_data
     end
 
+    # Activates the tool and prepares the SketchUp environment.
+    # Clears the current selection and updates UI elements.
+    #
+    # @return [void]
     def activate
       update_ui
       Sketchup.active_model.selection.clear
     end
 
+    # Deactivates the tool and cleans up the view.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def deactivate(view)
       view.invalidate
     end
 
+    # Resumes the tool after being temporarily inactive.
+    # Updates UI and refreshes the view.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def resume(view)
       update_ui
       view.invalidate
     end
 
+    # Returns a consistent unique integer identifier for this tool.
+    # Used by SketchUp to track tool instances.
+    #
+    # @return [Integer] Unique tool identifier based on class name hash
     def get_id
-      # Returns a consistent unique integer based on the class name
       self.class.name.hash.abs
     end
 
@@ -81,15 +100,14 @@ module SketchX
     # UI & STATUS BAR
     # ==========================================================================
 
+    # Updates the user interface elements including VCB (Value Control Box) and status bar.
+    # Displays current radius, segments, and contextual instructions based on tool state.
+    #
+    # @return [void]
     def update_ui
-      # 1. Keep the VCB Label simple (helps SketchUp refresh it reliably)
       Sketchup.vcb_label = 'Radius; Segments'
-
-      # 2. Show the values (Radius and Segments)
       Sketchup.vcb_value = "#{@radius}; #{@segments}s"
 
-      # 3. Use the Status Bar for the "Toggle" feedback
-      # This is where SketchUp users expect to see tool instructions
       lead_text = @remove_lead ? '[ Corner : REMOVED ]' : '[ Corner : KEEP ]'
 
       mode_text = case @state
@@ -103,7 +121,6 @@ module SketchX
                     'Ready'
                   end
 
-      # Combine them into one clear instruction line
       full_status = "#{mode_text} | Option/Ctrl: Toggle -> #{lead_text}"
       Sketchup.set_status_text(full_status)
     end
@@ -112,6 +129,14 @@ module SketchX
     # INPUT HANDLING
     # ==========================================================================
 
+    # Handles mouse movement events and updates tool state accordingly.
+    # Processes hover, drag, and preview logic based on current state.
+    #
+    # @param flags [Integer] Modifier key flags
+    # @param x [Integer] Screen X coordinate
+    # @param y [Integer] Screen Y coordinate
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def onMouseMove(flags, x, y, view)
       @ip.pick(view, x, y)
 
@@ -126,18 +151,21 @@ module SketchX
       view.invalidate
     end
 
+    # Handles left mouse button down events.
+    # Manages state transitions between hover, dragging, and committed states.
+    #
+    # @param flags [Integer] Modifier key flags
+    # @param x [Integer] Screen X coordinate
+    # @param y [Integer] Screen Y coordinate
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def onLButtonDown(flags, x, y, view)
-      # NEW: If we are in 'committed' mode, a click means "I'm done editing, start new".
       if @state == :committed
         reset_state
-        # After reset, @state is now :hover.
-        # We immediately run the hover logic for the current click position
-        # so the user doesn't have to click twice.
         @ip.pick(view, x, y)
         @mode == :multi ? handle_hover_multi_round(view) : handle_hover_single_round(view)
       end
 
-      # Existing logic handles the transition from Hover -> Drag -> Commit
       case @state
       when :hover
         @state = :dragging unless @preview_data.empty?
@@ -147,30 +175,25 @@ module SketchX
       view.invalidate
     end
 
+    # Processes user text input for radius and segment values.
+    # Supports single value (radius or segments) or double value (radius; segments) input.
+    # Handles both dragging and committed states with appropriate geometry updates.
+    #
+    # @param text [String] User input text
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
+    # @raise [StandardError] If input parsing fails
     def onUserText(text, view)
-      # 1. Parse user input single or double value
       parse_user_input(text)
 
-      # 2. Handle based on State
       if @state == :committed
-        # --- NATIVE BEHAVIOR LOGIC ---
-        # The user typed a value AFTER the geometry was created.
-        # We must UNDO the last operation to restore the original edges,
-        # then re-apply the operation with the new radius.
-        # But only if we have the data to do so
         if @face_corners_raw.any?
-          Sketchup.undo # Revert to before commit_geometry
-
-          # Since we just Undid, so theoriginal edges (@edge_a, @edge_b, etc.) are valid again.
-          # We just need to update the preview math with the new @radius.
+          Sketchup.undo
           recalc_previews
-
-          # And re-commit immediately
           commit_geometry
         end
 
       elsif @state == :dragging
-        # Just update the ghost preview
         recalc_previews unless @face_corners_raw.empty?
         commit_geometry
       end
@@ -181,8 +204,15 @@ module SketchX
       puts "Input error: #{e.message}"
     end
 
+    # Handles keyboard input for toggling lead removal.
+    # Activates when Cmd (Mac) or Ctrl (Windows) key is pressed.
+    #
+    # @param key [Integer] Key code
+    # @param repeat [Integer] Repeat count
+    # @param flags [Integer] Modifier key flags
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def onKeyDown(key, repeat, flags, view)
-      # COPY_MODIFIER_MASK captures Cmd on Mac and Ctrl on Windows
       return unless (flags & COPY_MODIFIER_MASK) != 0
 
       @remove_lead = !@remove_lead
@@ -191,15 +221,20 @@ module SketchX
       puts "Lead Removal: #{@remove_lead}"
     end
 
-    # Standard SketchUp Callback for Tool Interruption
+    # Handles tool cancellation events (Escape key, tool change, undo/redo).
+    # Resets tool state appropriately based on cancellation reason.
+    #
+    # @param reason [Integer] Cancellation reason code (0=Escape, 1=Tool change, 2=Undo/Redo)
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def onCancel(reason, view)
       case reason
-      when 0 # Escape
+      when 0
         reset_state
         view.invalidate
-      when 1 # Changed tool
+      when 1
         reset_selection_data
-      when 2 # Undo/Redo
+      when 2
         reset_state
       end
       view.invalidate
@@ -209,6 +244,11 @@ module SketchX
     # INPUT PARSING
     # ==========================================================================
 
+    # Parses user input text for radius and segment values.
+    # Supports both single value and semicolon-separated double value formats.
+    #
+    # @param text [String] Input text to parse
+    # @return [void]
     def parse_user_input(text)
       parts = text.split(';').map(&:strip)
 
@@ -220,6 +260,11 @@ module SketchX
       end
     end
 
+    # Parses a single input value as either radius or segments.
+    # Values ending with 's' are interpreted as segments, otherwise as radius.
+    #
+    # @param value [String] The value string to parse
+    # @return [void]
     def parse_single_value(value)
       if value.end_with?('s')
         @segments = value.to_i
@@ -228,6 +273,12 @@ module SketchX
       end
     end
 
+    # Parses double input values for radius and segments.
+    # Format: "radius; segments"
+    #
+    # @param r_str [String] Radius value string
+    # @param s_str [String] Segments value string
+    # @return [void]
     def parse_double_value(r_str, s_str)
       @radius = r_str.to_l unless r_str.empty?
       @segments = s_str.to_i unless s_str.empty?
@@ -237,6 +288,11 @@ module SketchX
     # HOVER LOGIC
     # ==========================================================================
 
+    # Handles hover logic for single round mode.
+    # Detects corner formed by two edges and prepares preview data.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def handle_hover_single_round(view)
       reset_selection_data
       picked = @ip.edge
@@ -257,6 +313,11 @@ module SketchX
       recalc_previews
     end
 
+    # Handles hover logic for multi round mode.
+    # Detects edge chains and analyzes all corners in the chain.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def handle_hover_multi_round(view)
       picked = @ip.edge
       return if picked && @highlight_edges.include?(picked)
@@ -276,6 +337,11 @@ module SketchX
     # DRAG LOGIC
     # ==========================================================================
 
+    # Handles drag logic for dynamically adjusting radius.
+    # Updates radius based on mouse distance from corner point.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def handle_drag_logic(view)
       return if @face_corners_raw.empty?
 
@@ -292,6 +358,11 @@ module SketchX
     # GEOMETRY ANALYSIS
     # ==========================================================================
 
+    # Analyzes corners in an edge chain and calculates maximum radius limits.
+    # Populates @face_corners_raw with valid corner data.
+    #
+    # @param chain [Array<Sketchup::Edge>] Array of edges forming a chain
+    # @return [void]
     def analyze_chain_corners(chain)
       limits = []
       vertices = chain.map(&:vertices).flatten.uniq
@@ -313,6 +384,13 @@ module SketchX
       @max_limit = limits.min || 0.to_l
     end
 
+    # Calculates the maximum allowable radius for a corner based on adjacent edge lengths.
+    # Considers whether adjacent corners exist to prevent overlap.
+    #
+    # @param vertex [Sketchup::Vertex] The corner vertex
+    # @param connected_edges [Array<Sketchup::Edge>] Edges connected to the vertex
+    # @param chain [Array<Sketchup::Edge>] Complete edge chain
+    # @return [Length] Maximum radius limit in SketchUp length units
     def calculate_corner_limit(vertex, connected_edges, chain)
       edge_limits = connected_edges.map do |e|
         other_v = e.other_vertex(vertex)
@@ -328,12 +406,20 @@ module SketchX
     # PREVIEW MANAGEMENT
     # ==========================================================================
 
+    # Recalculates preview data for all corners based on current radius.
+    # Updates @preview_data with calculated arc parameters.
+    #
+    # @return [void]
     def recalc_previews
       @preview_data = @face_corners_raw.map do |c|
         FilletCalculator.calc_round(c[:pos_a], c[:pos_b], c[:pos_c], @radius)
       end.compact
     end
 
+    # Resets all selection and preview data to initial state.
+    # Clears edges, highlights, corners, and preview information.
+    #
+    # @return [void]
     def reset_selection_data
       @edge_a = @edge_b = nil
       @highlight_edges = []
@@ -346,16 +432,18 @@ module SketchX
     # GEOMETRY CREATION
     # ==========================================================================
 
+    # Commits the geometry by creating arcs and optionally removing lead edges.
+    # Wraps operations in an undo-able transaction and updates tool state.
+    #
+    # @return [void]
     def commit_geometry
       return if @preview_data.empty?
 
       model = Sketchup.active_model
-      # 1. Start Operation (Undo from here)
       model.start_operation('Round Selection', true)
 
       @tangent_edges = []
 
-      # 2. Create arcs and collect tangent edges or leads
       @preview_data.each do |d|
         arc = model.active_entities.add_arc(
           d[:pos_o], d[:xaxis], d[:normal],
@@ -364,58 +452,54 @@ module SketchX
         collect_tangent_edges(d, arc)
       end
 
-      # 3. Remove leads or tangent edges if enabled
       remove_leads(@tangent_edges) if @remove_lead
 
-      # 4. Commit Operation
       model.commit_operation
 
-      # 5. CRITICAL CHANGE: Do NOT reset_state yet.
-      # Switch to :committed so onUserText knows we just finished an action.
       @state = :committed
 
-      # Update status to let user know they can still type
       Sketchup.set_status_text('Type new radius to modify | Move mouse or press Space to finish.')
-      # Update the UI to show the new status
       update_ui
-
-      # Update Selection AFTER commit so the UI can draw it
-      # selection = model.selection
-      # selection.clear
-      # selection.add(@tangent_edges)
-      # model.active_view.invalidate
-
-      # Delay or remove reset_state to keep the selection visible
-      # reset_state
     end
 
+    # Collects tangent edges connected to the corner point.
+    # These edges will be removed if lead removal is enabled.
+    #
+    # @param data [Hash] Corner data containing position information
+    # @param arc [Sketchup::ArcCurve] The created arc curve
+    # @return [Array<Sketchup::Edge>] Array of collected tangent edges
     def collect_tangent_edges(data, arc)
       model = Sketchup.active_model
       entities = model.active_entities
 
-      # Find edges at tangent points
       corner_point = data[:pos_b]
 
       entities.grep(Sketchup::Edge).each do |edge|
-        # If any end is same between two edge, its tangen edge
         @tangent_edges << edge if edge.start.position == corner_point || edge.end.position == corner_point
       end
 
       @tangent_edges
     end
 
+    # Removes lead edges connected to rounded corners.
+    # Filters out arc edges and deleted edges before removal.
+    #
+    # @param edges [Array<Sketchup::Edge>] Edges to potentially remove
+    # @return [void]
     def remove_leads(edges)
       return if edges.empty?
 
       entities = Sketchup.active_model.active_entities
 
-      # Filter out arc edges and duplicates
       edges_to_remove = edges.uniq.reject { |e| e.deleted? || e.curve }
 
-      # Remove all lead edge connected to vertex corner
       entities.erase_entities(edges_to_remove)
     end
 
+    # Resets tool to initial hover state and clears all data.
+    # Re-activates the tool with fresh state.
+    #
+    # @return [void]
     def reset_state
       @state = :hover
       reset_selection_data
@@ -426,6 +510,10 @@ module SketchX
     # HELPER METHODS
     # ==========================================================================
 
+    # Finds the vertex on an edge nearest to the current input point.
+    #
+    # @param edge [Sketchup::Edge] The edge to check
+    # @return [Sketchup::Vertex] The nearest vertex
     def find_nearest_vertex(edge)
       if edge.start.position.distance(@ip.position) < edge.end.position.distance(@ip.position)
         edge.start
@@ -434,6 +522,11 @@ module SketchX
       end
     end
 
+    # Finds the first edge connected to a vertex, excluding a specified edge.
+    #
+    # @param vertex [Sketchup::Vertex] The vertex to check
+    # @param exclude_edge [Sketchup::Edge] Edge to exclude from results
+    # @return [Sketchup::Edge, nil] The connected edge or nil
     def find_connected_edge(vertex, exclude_edge)
       vertex.edges.reject { |e| e == exclude_edge }.first
     end
@@ -442,20 +535,27 @@ module SketchX
     # DRAWING
     # ==========================================================================
 
+    # Main drawing method called by SketchUp to render tool graphics.
+    # Delegates to specialized drawing methods based on tool state.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def draw(view)
       draw_highlights(view)
       draw_corner_indicators(view)
       draw_previews(view) if @state == :dragging
     end
 
-    # Draws highlighted edges for single and multi round modes
+    # Draws highlighted edges for both single and multi round modes.
+    # Visual feedback for selected edges that will be rounded.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def draw_highlights(view)
-      # Draw highlighted edges for multi round mode
       if @mode == :multi && !@highlight_edges.empty?
         view.line_width = 4
         view.drawing_color = Config::COLORS[:highlight]
         @highlight_edges.each do |e|
-          # FIX: Skip if the edge was deleted by the previous commit
           next if e.deleted?
 
           view.draw(GL_LINES, e.start.position, e.end.position)
@@ -463,17 +563,19 @@ module SketchX
       end
 
       return unless @mode == :single && @edge_a
-      # FIX: Skip if single mode edges are deleted
       return if @edge_a.deleted? || @edge_b.deleted?
 
-      # Draw highlighted edges for single round mode
       view.line_width = 3
       view.drawing_color = Config::COLORS[:highlight]
       view.draw(GL_LINES, @edge_a.start.position, @edge_a.end.position)
       view.draw(GL_LINES, @edge_b.start.position, @edge_b.end.position)
     end
 
-    # Draw indicator red dots at corners
+    # Draws red indicator dots at corner positions.
+    # Visual markers showing where rounds will be applied.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def draw_corner_indicators(view)
       return if @face_corners_raw.empty?
 
@@ -482,7 +584,11 @@ module SketchX
       view.draw_points(pts, 10, 2, Config::COLORS[:corner])
     end
 
-    # Draws the preview arcs for the current radius and segments
+    # Draws preview arcs and HUD for current radius and segments.
+    # Only active during dragging state to show real-time feedback.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [void]
     def draw_previews(view)
       return if @preview_data.empty?
 
@@ -496,6 +602,13 @@ module SketchX
   # ============================================================================
 
   module GeometryAnalyzer
+    # Extracts geometric data from two edges forming a corner.
+    # Calculates positions, vectors, and maximum radius limit.
+    #
+    # @param edge_a [Sketchup::Edge] First edge
+    # @param edge_c [Sketchup::Edge] Second edge
+    # @param vtx [Sketchup::Vertex, nil] Corner vertex (optional)
+    # @return [Hash] Hash containing corner geometry data or error information
     def self.extract_data(edge_a, edge_c, vtx = nil)
       if vtx
         pos_b = vtx.position
@@ -531,6 +644,14 @@ module SketchX
   # ============================================================================
 
   module FilletCalculator
+    # Calculates fillet/round arc parameters for a corner.
+    # Computes center point, tangent points, angles, and orientation.
+    #
+    # @param pos_a [Geom::Point3d] Position of first edge endpoint
+    # @param pos_b [Geom::Point3d] Position of corner point
+    # @param pos_c [Geom::Point3d] Position of second edge endpoint
+    # @param radius [Length] Desired radius for the round
+    # @return [Hash, nil] Hash containing arc parameters or nil if angle is invalid
     def self.calc_round(pos_a, pos_b, pos_c, radius)
       vector_ba = (pos_a - pos_b).normalize
       vector_bc = (pos_c - pos_b).normalize
@@ -591,6 +712,11 @@ module SketchX
   # ============================================================================
 
   module ChainFinder
+    # Finds a continuous chain of connected edges starting from a given edge.
+    # Returns curve edges if the start edge belongs to a curve.
+    #
+    # @param start_edge [Sketchup::Edge] The edge to start chain detection from
+    # @return [Array<Sketchup::Edge>] Array of edges forming the chain
     def self.find_chain(start_edge)
       return start_edge.curve.edges if start_edge.curve
 
@@ -603,6 +729,13 @@ module SketchX
       chain
     end
 
+    # Extends an edge chain by following connected edges from a vertex.
+    # Stops when reaching a vertex with more than 2 edges or a dead end.
+    #
+    # @param chain [Array<Sketchup::Edge>] Current chain of edges
+    # @param start_edge [Sketchup::Edge] Initial edge
+    # @param start_vertex [Sketchup::Vertex] Vertex to extend from
+    # @return [void]
     def self.extend_chain(chain, start_edge, start_vertex)
       curr_v = start_vertex
       curr_e = start_edge
@@ -626,6 +759,13 @@ module SketchX
   # ============================================================================
 
   module PreviewRenderer
+    # Draws complete preview visualization for a fillet arc.
+    # Includes guide lines, center point, and arc preview.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @param data [Hash] Fillet calculation data
+    # @param segments [Integer] Number of arc segments to draw
+    # @return [void]
     def self.draw_preview(view, data, segments)
       arc_depth = calculate_arc_depth(view)
 
@@ -634,6 +774,11 @@ module SketchX
       draw_arc_preview(view, data, segments, arc_depth)
     end
 
+    # Calculates depth offset for drawing arc slightly in front of geometry.
+    # Prevents z-fighting with existing faces.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @return [Geom::Vector3d] Offset vector toward camera
     def self.calculate_arc_depth(view)
       normal_arc_to_camera = view.camera.direction.reverse
       arc_depth = normal_arc_to_camera
@@ -641,6 +786,12 @@ module SketchX
       arc_depth
     end
 
+    # Draws dashed guide lines from arc center to tangent points.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @param data [Hash] Fillet calculation data
+    # @param arc_depth [Geom::Vector3d] Depth offset vector
+    # @return [void]
     def self.draw_guide_lines(view, data, arc_depth)
       p_o_lifted = data[:pos_o].offset(arc_depth)
       p_p1_lifted = data[:pos_p1].offset(arc_depth)
@@ -654,11 +805,24 @@ module SketchX
       view.line_stipple = ''
     end
 
+    # Draws a point marker at the arc center position.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @param data [Hash] Fillet calculation data
+    # @return [void]
     def self.draw_center_point(view, data)
       view.line_width = 2
       view.draw_points([data[:pos_o]], 6, 2, Config::COLORS[:guide])
     end
 
+    # Draws the arc preview with specified number of segments.
+    # Generates points along the arc and renders as line strip.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @param data [Hash] Fillet calculation data
+    # @param segments [Integer] Number of arc segments
+    # @param arc_depth [Geom::Vector3d] Depth offset vector
+    # @return [void]
     def self.draw_arc_preview(view, data, segments, arc_depth)
       points = []
       view.drawing_color = Config::COLORS[:preview]
@@ -682,6 +846,14 @@ module SketchX
   # ============================================================================
 
   module HUDRenderer
+    # Draws a heads-up display showing current radius and segment count.
+    # Positioned near the input point with background and border.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @param position [Geom::Point3d] 3D position for HUD anchor
+    # @param radius [Length] Current radius value
+    # @param segments [Integer] Current segment count
+    # @return [void]
     def self.draw_hud(view, position, radius, segments)
       s_factor = UI.scale_factor
       screen_pos = view.screen_coords(position)
@@ -696,6 +868,11 @@ module SketchX
       draw_text(view, label_pos, label_text, font_opts)
     end
 
+    # Builds font options hash with platform-specific size key.
+    # Handles differences between Windows, macOS, and other platforms.
+    #
+    # @param scale_factor [Float] UI scale factor for high DPI displays
+    # @return [Hash] Font options for text rendering
     def self.build_font_options(scale_factor)
       size_key = case Sketchup.platform
                  when :platform_win then :pixel_size
@@ -712,6 +889,12 @@ module SketchX
       }
     end
 
+    # Calculates 2D bounding box points for HUD background.
+    # Adds padding around text bounds.
+    #
+    # @param bounds [Geom::Bounds2d] Text bounds
+    # @param padding [Numeric] Padding in screen pixels
+    # @return [Array<Array<Numeric>>] Array of [x, y] coordinate pairs
     def self.calculate_box_points(bounds, padding)
       left = bounds.upper_left.x - padding
       top = bounds.upper_left.y - padding
@@ -721,6 +904,12 @@ module SketchX
       [[left, top], [right, top], [right, bottom], [left, bottom]]
     end
 
+    # Draws semi-transparent background rectangle for HUD.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @param bounds [Geom::Bounds2d] Text bounds
+    # @param scale_factor [Float] UI scale factor
+    # @return [void]
     def self.draw_background(view, bounds, scale_factor)
       pad = Config::HUD_PADDING_SCALE * scale_factor
       box_pts = calculate_box_points(bounds, pad)
@@ -729,6 +918,12 @@ module SketchX
       view.draw2d(GL_POLYGON, box_pts)
     end
 
+    # Draws border outline around HUD background.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @param bounds [Geom::Bounds2d] Text bounds
+    # @param scale_factor [Float] UI scale factor
+    # @return [void]
     def self.draw_border(view, bounds, scale_factor)
       pad = Config::HUD_PADDING_SCALE * scale_factor
       box_pts = calculate_box_points(bounds, pad)
@@ -738,6 +933,13 @@ module SketchX
       view.draw2d(GL_LINE_LOOP, box_pts)
     end
 
+    # Draws the HUD text with specified font options.
+    #
+    # @param view [Sketchup::View] The active SketchUp view
+    # @param position [Array<Numeric>] Screen [x, y] position
+    # @param text [String] Text to display
+    # @param font_options [Hash] Font rendering options
+    # @return [void]
     def self.draw_text(view, position, text, font_options)
       view.drawing_color = Config::COLORS[:hud_text]
       view.draw_text(position, text, font_options)
@@ -749,27 +951,37 @@ module SketchX
   # ============================================================================
 
   module PluginLoader
+    # Sets up the plugin by creating commands, menus, and toolbar.
+    # Called once during plugin initialization.
+    #
+    # @return [void]
     def self.setup
       create_commands
       create_menus
       create_toolbar
     end
 
-    # Helper method to safely check if our tool is active
+    # Safely validates tool state by checking if the specified mode is active.
+    # Returns appropriate menu flag for command validation.
+    #
+    # @param mode [Symbol] Tool mode to check (:single or :multi)
+    # @return [Integer] Menu flag constant (MF_CHECKED or MF_ENABLED)
     def self.validate_tool_state(mode)
       model = Sketchup.active_model
-      # Check if model exists and has a tool manager (prevents crash on exit)
       if model && model.tools
         active_tool = model.tools.active_tool
         return MF_CHECKED if active_tool.is_a?(SketchX::FilletTool) && active_tool.mode == mode
       end
       MF_ENABLED
     rescue StandardError
-      MF_ENABLED # Fallback for any unexpected state during shutdown
+      MF_ENABLED
     end
 
+    # Creates UI commands for single round, multi round, and reload operations.
+    # Configures icons, tooltips, and validation procedures.
+    #
+    # @return [void]
     def self.create_commands
-      # SINGLE ROUND TOOL
       @cmd_single = UI::Command.new('Single Round') do
         Sketchup.active_model.select_tool(SketchX::FilletTool.new(:single))
       end
@@ -778,7 +990,6 @@ module SketchX
       @cmd_single.large_icon = 'x_single_round.pdf'
       @cmd_single.tooltip = 'Round 2 Edges'
 
-      # MULTI ROUND TOOL
       @cmd_multi = UI::Command.new('Multi Round') do
         Sketchup.active_model.select_tool(SketchX::FilletTool.new(:multi))
       end
@@ -787,7 +998,6 @@ module SketchX
       @cmd_multi.large_icon = 'x_multi_round.pdf'
       @cmd_multi.tooltip = 'Round Multiple Edges'
 
-      # RELOAD TOOL
       @cmd_reload = UI::Command.new('Reload') do
         load __FILE__
         SKETCHUP_CONSOLE.clear
@@ -798,6 +1008,10 @@ module SketchX
       @cmd_reload.tooltip = 'Reload Plugin'
     end
 
+    # Creates plugin menu under Plugins menu.
+    # Adds all command items to the submenu.
+    #
+    # @return [void]
     def self.create_menus
       menu = UI.menu('Plugins').add_submenu('RoundMe')
       menu.add_item(@cmd_single)
@@ -805,6 +1019,10 @@ module SketchX
       menu.add_item(@cmd_reload)
     end
 
+    # Creates and displays the plugin toolbar.
+    # Adds all command buttons to the toolbar.
+    #
+    # @return [void]
     def self.create_toolbar
       tb = UI::Toolbar.new('RoundMe')
       tb.add_item(@cmd_single)
